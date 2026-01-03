@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Action Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <style>
+        :root { --min-bg: #f8f9fa; --more-bg: #fff9f0; --max-bg: #fff0f5; --accent: #333; }
+        body { font-family: 'Pretendard', sans-serif; background: #eef1f4; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .header { background: white; width: 100%; max-width: 900px; padding: 20px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); text-align: center; }
+        input[type="date"] { padding: 10px; border-radius: 8px; border: 1px solid #ddd; font-size: 1.1rem; width: 200px; cursor: pointer; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; width: 100%; max-width: 1000px; }
+        .category-card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .category-title { font-size: 1.3rem; font-weight: 800; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid var(--accent); color: var(--accent); }
+        .level-group { margin-bottom: 15px; border-radius: 10px; padding: 10px; }
+        .level-min { background: var(--min-bg); }
+        .level-more { background: var(--more-bg); }
+        .level-max { background: var(--max-bg); }
+        .level-label { font-weight: bold; font-size: 0.85rem; margin-bottom: 8px; display: block; color: #666; }
+        .action-item { display: flex; align-items: flex-start; margin-bottom: 6px; }
+        .action-item input { margin-top: 4px; margin-right: 10px; width: 18px; height: 18px; cursor: pointer; }
+        .action-item label { font-size: 0.95rem; line-height: 1.4; color: #444; cursor: pointer; }
+/* 체크박스가 선택(checked)되면 바로 뒤에 있는 label의 스타일을 변경 */
+.action-item input:checked + label {
+    text-decoration: line-through; /* 취소선 */
+    color: #bbb; /* 흐린 회색 */
+    opacity: 0.7; /* 투명도 조절 */
+}
+        #sync-status { position: fixed; bottom: 20px; right: 20px; background: rgba(0,0,0,0.8); color: white; padding: 10px 25px; border-radius: 30px; display: none; z-index: 1000; font-weight: bold; }
+
+/* 진행률 바의 바깥 테두리 */
+.progress-container {
+    width: 100%;
+    background-color: #eee;
+    border-radius: 10px;
+    margin-top: 10px;
+    height: 10px;
+    overflow: hidden;
+}
+
+/* 실제로 차오르는 색상 막대 */
+.progress-bar {
+    width: 0%; /* 처음엔 0% */
+    height: 100%;
+    background-color: #4caf50; /* 초록색 */
+    transition: width 0.3s ease; /* 부드럽게 차오르는 효과 */
+}
+
+
+
+        @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h2 style="margin-top:0;">📋 Daily Action Dashboard</h2>
+    <input type="date" id="dateSelect">
+    <div id="counter" style="margin-top:15px; font-weight:bold; color: #555;">오늘 0 / 72 달성 중!</div>
+    
+    <div class="progress-container">
+        <div id="progressBar" class="progress-bar"></div>
+    </div>
+<div id="cheerMessage" style="margin-top:10px; font-size: 1.2rem; font-weight: bold; color: #ff5722; min-height: 1.5rem;"></div>
+</div>
+
+    <div class="grid" id="mainGrid">
+        </div>
+
+    <div id="sync-status">시트에 저장 중... 🚀</div>
+
+    <script>
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytkuprz2BdLodp4EMhJQebKjqCbdL12OdH6WxDece22nXn9riWwFKKZgrCwNAmZaesQg/exec";
+
+        // [데이터 배열] 수정하고 싶은 텍스트가 있다면 여기만 고치면 됩니다!
+        const data = [
+            { cat: "운동", items: { Min: ["푸시업 5회", "버핏 5회", "스쿼트 5회"], More: ["푸시업 15회", "버핏 15회", "스쿼트 15회"], Max: ["운동 1시간", "달리기 20분", "크로스핏 WOD 10분"] }},
+            { cat: "병법서", items: { Min: ["미니노트 챙기기", "나윤이 마음표현 3번", "효진이 마음표현 3번"], More: ["미니노트 작성", "미니노트 복기", "병법서 10분 듣기"], Max: ["병법서 노트 복기", "경험 노트 10분", "병법서 30분 듣기"] }},
+            { cat: "산업", items: { Min: ["아웃스탠딩 접속", "뉴스레터 모두 열어보기", "ECO 채널 1개 열기"], More: ["아웃스탠딩 2개", "뉴스레터 2개", "광고소개서 1개"], Max: ["미디어리포트 2개", "센서타워 리포트 2개", "PL 2개"] }},
+            { cat: "몰로코", items: { Min: ["매출 적기", "메일 정리 1번", "링크드인 글 1개"], More: ["팀 위클리 1개 읽기", "회사 제품 업데이트 10분", "AI 채팅 10분"], Max: ["리더 글 2개", "새로운 사람 인사 1번", "PL 2개"] }},
+            { cat: "AI/코딩", items: { Min: ["AI 영상 1개 시청", "인프런 페이지 접속", "AI 타임스 기사 1개"], More: ["실리콘밸리 미드 1개", "회사 ML 업데이트 10분", "코딩 강의 20분"], Max: ["관련 책 독서 10분", "허진호/AI 1개", "코딩 실전 20분"] }},
+            { cat: "영어", items: { Min: ["캘리 단어 1+1", "비즈니스 문장 1개 외우기", "나윤 동화 한편 읽어주기"], More: ["V-log 루틴 1문단 외우기", "WOD 총 60분", "영어자막 콘텐츠 1편 보기"], Max: ["Ad-week 10분 서핑", "WOD 총 90분", "전화영어 20분"] }},
+            { cat: "투자", items: { Min: ["매일 신문 1면 읽기", "버핏 책 한페이지 읽기", "영어 뉴스레터 열어보기"], More: ["텔레) 인터넷/게임 글 5개", "텔레) 라피키 글 5개", "텔레) 이웅찬 글 5개"], Max: ["신문 완독하기", "디스이즈 게임 기사 3개", "AI 채팅 10분"] }},
+            { cat: "습관", items: { Min: ["썬크림 바르기", "탄산음료 하루 1개만", "약 챙겨먹기"], More: ["과자 먹지 않기", "밥 한숟가락 덜 먹기", "몸무게 측정하기"], Max: ["9시 이후 금식", "샐러드 1끼", "인사 먼저 하기"] }}
+        ];
+
+        const dateInput = document.getElementById('dateSelect');
+        const mainGrid = document.getElementById('mainGrid');
+        const syncStatus = document.getElementById('sync-status');
+
+        // 초기 오늘 날짜 설정
+        dateInput.value = new Date().toISOString().split('T')[0];
+
+        // [화면 그리기 함수] 날짜가 바뀌거나 처음 접속 시 리스트를 새로 만듭니다.
+// render 함수를 비동기(async) 함수로 변경하여 데이터를 기다리게 만듭니다.
+async function render() {
+    const selectedDate = dateInput.value;
+    mainGrid.innerHTML = '<p style="text-align:center;">데이터 불러오는 중...</p>';
+    
+    // 1. 구글 시트에서 해당 날짜에 완료된 항목 리스트 가져오기
+    let completedItems = [];
+    try {
+        const response = await fetch(`${SCRIPT_URL}?date=${selectedDate}`);
+        completedItems = await response.json();
+    } catch (e) {
+        console.error("데이터 로딩 실패:", e);
+    }
+
+    mainGrid.innerHTML = ''; 
+    data.forEach(category => {
+        const card = document.createElement('div');
+        card.className = 'category-card';
+        let cardHTML = `<div class="category-title">${category.cat}</div>`;
+        
+        ["Min", "More", "Max"].forEach(level => {
+            cardHTML += `<div class="level-group level-${level.toLowerCase()}">
+                <span class="level-label">${level}</span>`;
+            category.items[level].forEach((item, idx) => {
+                const itemId = `${category.cat}-${level}-${idx}`;
+                // 가져온 데이터에 이 항목이 있으면 체크(checked) 상태로 만듭니다.
+                const isChecked = completedItems.includes(item) ? 'checked' : '';
+                
+                cardHTML += `
+                    <div class="action-item">
+                        <input type="checkbox" id="${itemId}" ${isChecked} onchange="sync('${category.cat}', '${level}', '${item}', this.checked)">
+                        <label for="${itemId}">${item}</label>
+                    </div>`;
+            });
+            cardHTML += `</div>`;
+        });
+        card.innerHTML = cardHTML;
+        mainGrid.appendChild(card);
+    });
+    
+    updateCounter(); // 체크박스가 채워진 후 카운터와 진행바 업데이트
+}
+
+function updateCounter() {
+    const total = document.querySelectorAll('input[type="checkbox"]').length;
+    const checked = document.querySelectorAll('input[type="checkbox"]:checked').length;
+    const cheerMsg = document.getElementById('cheerMessage');
+    
+    // 1. 숫자 및 진행바 업데이트
+    document.getElementById('counter').innerText = `오늘 ${checked} / ${total} 달성 중!`;
+    const percentage = total > 0 ? (checked / total) * 100 : 0;
+    document.getElementById('progressBar').style.width = percentage + '%';
+
+    // 2. 메시지 초기화
+    cheerMsg.innerText = "";
+
+    // 3. [폭죽 및 메시지 로직]
+    if (checked > 0) {
+        if (checked === total) {
+            // 100% 달성: 피날레
+            cheerMsg.innerText = "🎉 완벽합니다! 오늘 목표 100% 달성!";
+            fireFinalConfetti();
+        } else if (checked === 36) {
+            // 절반 지점 (36개): 응원 메시지 + 더 화려한 폭죽
+            cheerMsg.innerText = "🔥 절반이나 왔어! 조금만 더 힘내요!";
+            fireSpecialConfetti(); 
+        } else if (checked % 10 === 0) {
+            // 10단위: 일반 폭죽보다 더 크게 개선
+            fireStepConfetti();
+        }
+    }
+}
+
+// [10개 단위] 기존보다 양을 2배 늘리고 범위를 넓힘
+function fireStepConfetti() {
+    confetti({
+        particleCount: 100, // 양을 늘림
+        spread: 100,        // 더 넓게 퍼짐
+        origin: { y: 0.6 },
+        scale: 1.2          // 입자 크기 키움
+    });
+}
+
+// [36개 절반 지점] 더 화려한 스타일 (중앙 아래에서 위로 솟구침)
+function fireSpecialConfetti() {
+    var count = 200;
+    var defaults = { origin: { y: 0.7 } };
+
+    function fire(particleRatio, opts) {
+        confetti(Object.assign({}, defaults, opts, {
+            particleCount: Math.floor(count * particleRatio)
+        }));
+    }
+
+    fire(0.25, { spread: 26, startVelocity: 55 });
+    fire(0.2, { spread: 60 });
+    fire(0.35, { spread: 100, decay: 0.91, scalar: 0.8 });
+    fire(0.1, { spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 });
+    fire(0.1, { spread: 120, startVelocity: 45 });
+}
+
+// [100% 피날레] 3초간 화려하게 지속 (이미 구현된 로직 유지/강화)
+function fireFinalConfetti() {
+    const duration = 4 * 1000; // 4초로 연장
+    const end = Date.now() + duration;
+
+    (function frame() {
+        confetti({
+            particleCount: 7,
+            angle: 60,
+            spread: 55,
+            origin: { x: 0, y: 0.6 },
+            colors: ['#ff0000', '#ffa500', '#ffeb3b', '#ffffff']
+        });
+        confetti({
+            particleCount: 7,
+            angle: 120,
+            spread: 55,
+            origin: { x: 1, y: 0.6 },
+            colors: ['#ff0000', '#ffa500', '#ffeb3b', '#ffffff']
+        });
+
+        if (Date.now() < end) {
+            requestAnimationFrame(frame);
+        }
+    }());
+}
+
+
+        // [서버 전송 함수] 체크를 하거나 해제할 때 구글 시트로 보냅니다.
+        async function sync(category, level, itemName, isChecked) {
+            updateCounter(); // 체크할 때마다 숫자를 다시 셉니다.
+ 	    syncStatus.style.display = 'block';
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        date: dateInput.value,
+                        category: `${category}(${level})`,
+                        workout: itemName,
+                        isChecked: isChecked
+                    })
+                });
+            } catch (e) { console.error("전송 오류:", e); }
+            syncStatus.style.display = 'none';
+        }
+
+        // 날짜 변경 이벤트 연결
+        dateInput.addEventListener('change', render);
+
+        // 첫 실행
+        render();
+    </script>
+</body>
+</html>
